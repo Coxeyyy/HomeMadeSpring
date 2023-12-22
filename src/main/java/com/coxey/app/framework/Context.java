@@ -42,29 +42,37 @@ public class Context {
         Optional<Constructor<?>> annotatedConstructor = Arrays.stream(constructors)
                 .filter(con -> con.isAnnotationPresent(Autowired.class))
                 .findFirst();
+        if (annotatedConstructor.isPresent()) {
+            return createObjectWithAutowiredConstructor(annotatedConstructor);
+        } else {
+            return createObjectWithDefaultConstructor(clazz);
+        }
+    }
 
+    private Object createObjectWithAutowiredConstructor(Optional<Constructor<?>> annotatedConstructor) throws InvocationTargetException, InstantiationException, IllegalAccessException {
+        Constructor<?> constructor = annotatedConstructor.get();
+        Class<?>[] parameterTypes = constructor.getParameterTypes();
+        List<Object> params = Arrays.stream(parameterTypes)
+                .map(
+                        cl -> {
+                            try {
+                                return get(cl.getAnnotation(Component.class).value());
+                            } catch (Exception e) {
+                                throw new RuntimeException("Такой тип нельзя подставлять как параметр");
+                            }
+                        }
+
+                ).collect(Collectors.toList());
+        return constructor.newInstance(params.toArray());
+    }
+
+    private Object createObjectWithDefaultConstructor(Class<?> clazz) throws NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
+        Object newObject = clazz.getConstructor().newInstance();
         Field[] declaredFields = clazz.getDeclaredFields();
         List<Field> autowiredList = Arrays.stream(declaredFields)
                 .filter(field -> field.isAnnotationPresent(Autowired.class))
                 .collect(Collectors.toList());
-
-        if (annotatedConstructor.isPresent()) {
-            Constructor<?> constructor = annotatedConstructor.get();
-            Class<?>[] parameterTypes = constructor.getParameterTypes();
-            List<Object> params = Arrays.stream(parameterTypes)
-                    .map(
-                            cl -> {
-                                try {
-                                    return get(cl.getAnnotation(Component.class).value());
-                                } catch (Exception e) {
-                                    throw new RuntimeException("Такой тип нельзя подставлять как параметр");
-                                }
-                            }
-
-                    ).collect(Collectors.toList());
-            return constructor.newInstance(params.toArray());
-        } else if (!autowiredList.isEmpty()) {
-            Object newObject = clazz.getConstructor().newInstance();
+        if(!autowiredList.isEmpty()) {
             autowiredList.stream()
                     .forEach(field -> {
                         field.setAccessible(true);
@@ -74,9 +82,7 @@ public class Context {
                             throw new RuntimeException(e);
                         }
                     });
-            return newObject;
-        } else {
-            return clazz.getConstructor().newInstance();
         }
+        return newObject;
     }
 }
